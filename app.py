@@ -2,12 +2,12 @@ import streamlit as st
 import pandas as pd
 import requests
 
-# ====== KONFIGURASI AZURE LANGUAGE SERVICE ======
+# ====== Konfigurasi Azure Language Service ======
 AZURE_ENDPOINT = "https://kerjatayang.cognitiveservices.azure.com/"
 AZURE_KEY = "8NT1mJXQxgeY7dJZioDN236Uu3DLzXfu5foUlggWBVUgOvIbJt8iJQQJ99BFACqBBLyXJ3w3AAAaACOGIhsJ"
 AZURE_REGION = "southeastasia"
 
-# ====== RED FLAG KEYWORDS ======
+# ====== Red Flag Keywords ======
 red_flag_keywords = [
     "menolak", "menghindar", "tidak peduli", "acuh", "membiarkan",
     "tidak mau", "emosi", "menyerah", "tidak tertarik", "tidak ikut",
@@ -16,7 +16,7 @@ red_flag_keywords = [
     "tidak tanggung jawab", "tidak membantu"
 ]
 
-# ====== FUNGSI ANALISIS SENTIMEN MENGGUNAKAN AZURE ======
+# ====== Fungsi Sentimen ======
 def analyze_sentiment(text):
     url = AZURE_ENDPOINT + "/text/analytics/v3.1/sentiment"
     headers = {
@@ -24,76 +24,115 @@ def analyze_sentiment(text):
         "Ocp-Apim-Subscription-Region": AZURE_REGION,
         "Content-Type": "application/json"
     }
-    body = {"documents": [{"id": "1", "language": "id", "text": text}]}
-    r = requests.post(url, headers=headers, json=body)
-    result = r.json()
+    data = {
+        "documents": [{
+            "id": "1",
+            "language": "id",
+            "text": text
+        }]
+    }
+    response = requests.post(url, headers=headers, json=data)
+    result = response.json()
     try:
         return result['documents'][0]['sentiment']
     except:
         return "neutral"
 
-# ====== SETUP STREAMLIT ======
-st.set_page_config(page_title="KerjaTayang", page_icon="🧠", layout="centered")
+# ====== Setup Streamlit App ======
+st.set_page_config(page_title="KerjaTayang", layout="centered")
 st.title("🎯 KerjaTayang: Simulasi Soft Skill Berdasarkan Peran")
 
-uploaded_file = st.file_uploader("📂 Upload file pertanyaan (CSV)", type=["csv"])
-if uploaded_file:
-    questions_df = pd.read_csv(uploaded_file)
+# ====== Form Nama dan Umur ======
+with st.form("user_info"):
+    name = st.text_input("Nama lengkap")
+    age = st.number_input("Umur", min_value=10, max_value=100, step=1)
+    submitted = st.form_submit_button("Lanjutkan")
 
-    roles = questions_df["Role"].dropna().unique().tolist()
-    role = st.selectbox("💼 Pilih peran kerja:", [""] + roles)
+if submitted and name:
+    st.session_state["name"] = name
+    st.session_state["age"] = age
+    st.session_state["ready"] = True
 
-    if role:
-        st.success(f"Simulasi akan dilakukan untuk peran: **{role}**")
-        skills = questions_df[questions_df["Role"] == role]["Skills"].dropna().unique().tolist()
-        st.markdown("#### 📌 Soft Skill Utama:")
-        for s in skills:
-            st.markdown(f"- {s}")
+# ====== Load CSV dari file lokal ======
+try:
+    questions_df = pd.read_csv("questions.csv")
+except FileNotFoundError:
+    st.error("File questions.csv tidak ditemukan. Pastikan file berada di direktori yang sama.")
+    st.stop()
 
+# ====== Role Selection ======
+if st.session_state.get("ready"):
+    name = st.session_state["name"]
+    age = st.session_state["age"]
+
+    role_options = questions_df["Role"].dropna().unique().tolist()
+    selected_role = st.selectbox("Pilih peran kerja:", [""] + role_options)
+
+    if selected_role:
+        st.session_state["role"] = selected_role
+        st.markdown(f"👋 Halo **{name}** (umur {age}), kamu ingin menjadi **{selected_role}**.")
+        required_skills = questions_df[questions_df["Role"] == selected_role]["Skills"].unique().tolist()
+        st.markdown(f"🧠 Maka kamu perlu menguasai soft skills berikut:")
+        for skill in required_skills:
+            st.markdown(f"- {skill}")
         if st.button("🚀 Mulai Simulasi"):
-            st.session_state['mulai'] = True
-            st.session_state['results'] = []
+            st.session_state["simulate"] = True
+            st.session_state["answers"] = {}
 
-    # ====== SIMULASI BERLANGSUNG ======
-    if st.session_state.get('mulai'):
-        st.header("🧪 Simulasi Dimulai")
+# ====== Simulasi ======
+if st.session_state.get("simulate"):
+    st.header("🧪 Simulasi Soft Skill")
+    role = st.session_state["role"]
+    simulation_data = questions_df[questions_df["Role"] == role]
 
-        selected_questions = questions_df[questions_df["Role"] == role]
-        for i, row in selected_questions.iterrows():
-            st.markdown(f"🧑 **Skenario:** {row['Scenario']}")
-            response = st.text_area("💬 Jawabanmu:", key=f"q_{i}")
+    for i, row in simulation_data.iterrows():
+        st.subheader(f"Skenario {i+1}")
+        st.markdown(row["Scenario"])
+        response = st.text_area("Jawabanmu:", key=f"response_{i}")
+        st.session_state["answers"][i] = {
+            "response": response,
+            "skill": row["Skills"]
+        }
 
-            if response:
-                sentiment = analyze_sentiment(response)
-                flags = [k for k in red_flag_keywords if k in response.lower()]
-                score = 2 if sentiment == "positive" and not flags else 0 if sentiment == "negative" or flags else 1
+    if st.button("📊 Evaluasi Hasil"):
+        st.session_state["evaluate"] = True
 
-                st.session_state['results'].append({
-                    "skill": row["Skills"],
-                    "sentiment": sentiment,
-                    "red_flag": bool(flags),
-                    "score": score
-                })
+# ====== Evaluasi ======
+if st.session_state.get("evaluate"):
+    st.header("📋 Hasil Evaluasi")
+    results = []
+    for i, data in st.session_state["answers"].items():
+        response = data["response"]
+        skill = data["skill"]
+        if not response:
+            continue
+        sentiment = analyze_sentiment(response)
+        red_flags = [k for k in red_flag_keywords if k in response.lower()]
+        score = 2 if sentiment == "positive" and not red_flags else 0 if sentiment == "negative" or red_flags else 1
+        results.append({
+            "skill": skill,
+            "sentiment": sentiment,
+            "red_flag": bool(red_flags),
+            "score": score
+        })
 
-        if st.button("📊 Evaluasi Hasil"):
-            st.session_state['evaluasi'] = True
+    if not results:
+        st.warning("Belum ada jawaban yang diisi.")
+        st.stop()
 
-    # ====== EVALUASI ======
-    if st.session_state.get('evaluasi'):
-        st.header("📋 Hasil Evaluasi Soft Skill")
-        result_df = pd.DataFrame(st.session_state['results'])
+    df_result = pd.DataFrame(results)
+    total = len(df_result)
+    fit = len(df_result[df_result["score"] == 2])
+    percentage = (fit / total) * 100
 
-        if result_df.empty:
-            st.warning("Belum ada jawaban yang diisi.")
-        else:
-            fit_count = len(result_df[result_df["score"] == 2])
-            total = len(result_df)
-            percentage = (fit_count / total) * 100
+    st.markdown(f"### 🔍 Ringkasan:")
+    st.markdown(f"- Jawaban fit (positif tanpa red flag): **{fit}/{total}**")
+    st.markdown(f"- Persentase penguasaan soft skill: **{percentage:.1f}%**")
 
-            if percentage >= 50:
-                st.success(f"🎉 Selamat! Kamu telah menguasai soft skill dasar untuk peran **{role}**.")
-            else:
-                st.warning("💡 Tetap semangat! Kamu masih perlu mengembangkan soft skill berikut:")
-                needs_improvement = result_df[result_df["score"] < 2]["skill"].unique()
-                for s in needs_improvement:
-                    st.markdown(f"- 🔧 {s}")
+    if percentage >= 50:
+        st.success(f"🎉 Selamat, **{name}**! Kamu telah menguasai soft skill dasar untuk peran **{role}**.")
+    else:
+        st.warning(f"📘 Semangat, **{name}**! Kamu masih bisa mengembangkan kemampuan berikut:")
+        underdeveloped = df_result[df_result["score"] < 2]["skill"].unique()
+        for s in underdeveloped:
+            st.markdown(f"- 🔧 {s}")
