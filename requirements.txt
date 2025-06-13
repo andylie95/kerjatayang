@@ -1,5 +1,4 @@
 streamlit
 pandas
-textblob
-matplotlib
-numpy
+azure-ai-textanalytics
+plotly
