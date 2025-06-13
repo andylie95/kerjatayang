@@ -3,6 +3,9 @@ import pandas as pd
 import requests
 import os
 
+# ✅ MUST be the first Streamlit command
+st.set_page_config(page_title="KerjaTayang", page_icon="🎙️", layout="centered")
+
 # -------------------------
 # Azure Language Service Setup
 # -------------------------
@@ -46,7 +49,6 @@ df = load_questions()
 # -------------------------
 # Streamlit UI
 # -------------------------
-st.set_page_config(page_title="KerjaTayang", page_icon="🎙️", layout="centered")
 st.title("🎯 KerjaTayang: Simulasi Soft Skill untuk Karir Impian")
 st.write("Simulasi ini akan mengukur kesiapan kamu berdasarkan situasi kerja nyata.")
 
@@ -76,7 +78,7 @@ if name and age and selected_role:
                 st.warning(f"❗ Pertanyaan {qid} belum dijawab.")
                 continue
             sentiment = analyze_sentiment(user_input)
-            st.write(f"**Jawaban #{qid}**: {sentiment}")
+            st.write(f"**Jawaban #{qid}**: *{sentiment}*")
             if sentiment in ['positive', 'neutral']:
                 st.success("✅ Jawaban menunjukkan soft skill yang baik.")
                 score += 1
@@ -91,3 +93,12 @@ if name and age and selected_role:
             st.success(f"🎉 {name}, kamu cocok sebagai seorang **{selected_role}**! Skor kamu: {score}/5")
         else:
             st.warning(f"💡 {name}, tetap semangat! Kamu mendapatkan skor {score}/5. Latihan akan membuatmu semakin siap.")
+
+        st.markdown("---")
+        if st.button("🔽 Unduh Hasil sebagai TXT"):
+            result_text = f"KerjaTayang - Simulasi {selected_role}\nNama: {name}\nUsia: {age}\n\n"
+            for qid, user_input in responses:
+                result_text += f"{qid}. {user_input}\n"
+            result_text += f"\nSkor Akhir: {score}/5\n"
+            st.download_button("Klik untuk unduh", result_text, file_name="kerjatayang_result.txt")
+
