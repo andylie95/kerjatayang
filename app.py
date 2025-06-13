@@ -1,126 +1,152 @@
 import streamlit as st
 import pandas as pd
-from azure.ai.textanalytics import TextAnalyticsClient
-from azure.core.credentials import AzureKeyCredential
-import plotly.graph_objects as go
+import requests
+import uuid
+import json
+from collections import Counter
+import matplotlib.pyplot as plt
 
-# --- Azure Credentials  ---
-AZURE_KEY = "8NT1mJXQxgeY7dJZioDN236Uu3DLzXfu5foUlggWBVUgOvIbJt8iJQQJ99BFACqBBLyXJ3w3AAAaACOGIhsJ"
-AZURE_ENDPOINT = "https://kerjatayang.cognitiveservices.azure.com/"
-credential = AzureKeyCredential(AZURE_KEY)
-text_client = TextAnalyticsClient(endpoint=AZURE_ENDPOINT, credential=credential)
+# Set up Azure keys and endpoints (replace with your actual values)
+AZURE_LANGUAGE_KEY = "8NT1mJXQxgeY7dJZioDN236Uu3DLzXfu5foUlggWBVUgOvIbJt8iJQQJ99BFACqBBLyXJ3w3AAAaACOGIhsJ"
+AZURE_LANGUAGE_ENDPOINT = "https://kerjatayang.cognitiveservices.azure.com/"
+AZURE_LANGUAGE_REGION = "southeastasia"
 
-# --- Red Flags & Negative Keywords ---
-RED_FLAGS = [
-    "tidak tahu", "bukan tanggung jawab", "tidak peduli", "saya menyerah", "urusan orang lain",
-    "bukan saya", "tidak mau", "menolak", "membiarkan", "bukan masalah saya", "malas", "tidak tertarik",
-    "tunggu saja", "tidak penting", "ikut-ikut", "terserah", "tidak bisa", "tidak yakin", "takut salah",
-    "lebih baik diam"
+# Load questions from CSV
+questions_df = pd.read_csv("questions.csv")
+
+# Ensure consistent column names
+questions_df.columns = [col.strip() for col in questions_df.columns]
+
+# Soft skill red flags list (partial)
+red_flags = [
+    "menolak", "menghindari", "tidak peduli", "menyerah", "mengabaikan", "membiarkan",
+    "tidak penting", "salah orang lain", "terlalu sulit", "bukan tugas saya", "tidak yakin",
+    "tidak bisa", "tidak mau", "tidak cocok", "tidak mungkin", "terserah", "malas", "tidak niat",
+    "tidak tahu", "tidak paham"
 ]
-NEGATIVE_KEYWORDS = ["tidak", "malas", "enggan", "menolak", "gagal", "takut", "ragu", "salah", "lambat", "terlambat"]
 
-# --- Sentiment Evaluation ---
-def analyze_sentiment(text: str) -> str:
-    try:
-        result = text_client.analyze_sentiment([text])[0]
-        return result.sentiment  # 'positive', 'neutral', or 'negative'
-    except:
-        return "neutral"
-
-def evaluate_answer(text: str, sentiment: str) -> bool:
-    text = text.lower()
-    if any(flag in text for flag in RED_FLAGS):
-        return False
-    if any(word in text for word in NEGATIVE_KEYWORDS) and sentiment == "negative":
-        return False
-    return sentiment in ["positive", "neutral"]
-
-# --- Page Configuration ---
-st.set_page_config(page_title="KerjaTayang", page_icon="🎤", layout="centered")
-
-# --- Load Question Data ---
-@st.cache_data
-def load_questions():
-    return pd.read_csv("questions.csv")
-
-questions_df = load_questions()
-
-# --- UI ---
-st.markdown("<h1 style='text-align:center;'>🎤 KerjaTayang</h1>", unsafe_allow_html=True)
-st.markdown("Simulasi percakapan interaktif untuk membangun soft skill dengan bantuan **Azure Language Service**.")
-
-# --- User Input ---
-name = st.text_input("Nama lengkap:")
-age = st.number_input("Usia:", min_value=13, max_value=99, step=1)
-aspiration = st.text_input("Apa karier impianmu?")
-
-if name and age and aspiration:
-    st.success(f"Halo {name}, kamu akan mencoba simulasi peran kerja dengan 5 pertanyaan situasional.")
-
-    # --- Role Selection ---
-    role = st.selectbox("Pilih peran kerja:", questions_df["Role"].unique())
-    required_skills = {
-        "Data Analyst": ["Problem Solving", "Communication", "Accountability", "Teamwork", "Time Management"],
-        "Product Manager": ["Leadership", "Problem Solving", "Communication", "Accountability", "Time Management"],
-        "Digital Marketer": ["Creativity", "Communication", "Accountability", "Teamwork", "Time Management"],
-        "Security Administrator": ["Problem Solving", "Communication", "Accountability", "Time Management"],
-        "Content Creator": ["Creativity", "Communication", "Accountability", "Time Management"]
+# Analyze sentiment and flag risks
+def analyze_sentiment(text):
+    headers = {
+        "Ocp-Apim-Subscription-Key": AZURE_LANGUAGE_KEY,
+        "Ocp-Apim-Subscription-Region": AZURE_LANGUAGE_REGION,
+        "Content-Type": "application/json"
     }
 
-    st.markdown("**Soft Skill yang diuji:**")
-    for skill in required_skills[role]:
-        st.markdown(f"- ✅ {skill}")
+    body = {
+        "documents": [{
+            "id": "1",
+            "language": "id",
+            "text": text
+        }]
+    }
 
-    role_questions = questions_df[questions_df["Role"] == role].reset_index(drop=True)
-    score = 0
-    skill_scores = {s: 0 for s in required_skills[role]}
+    response = requests.post(
+        AZURE_LANGUAGE_ENDPOINT + "/text/analytics/v3.1/sentiment",
+        headers=headers,
+        json=body
+    )
 
-    for idx, row in role_questions.iterrows():
-        st.markdown(f"---\n**📘 Kasus {idx+1}:** {row['Scenario']}")
-        st.markdown(f"🧑‍💼 <b><i>Rekruter:</i></b> {row['Question']}", unsafe_allow_html=True)
+    result = response.json()
+    sentiment = result["documents"][0]["sentiment"]
+    confidence = result["documents"][0]["confidenceScores"][sentiment]
 
-        user_response = st.text_area("🧑 Kamu:", key=f"ans_{idx}")
+    # Red flag detection
+    text_lower = text.lower()
+    red_flag_hit = any(flag in text_lower for flag in red_flags)
 
-        if user_response:
-            sentiment = analyze_sentiment(user_response)
-            is_positive = evaluate_answer(user_response, sentiment)
+    return sentiment, confidence, red_flag_hit
 
-            feedback = "✅ Jawabanmu mencerminkan sikap positif." if is_positive else "⚠️ Jawabanmu mengandung red flag atau sikap negatif."
-            st.markdown(f"**Feedback:** {feedback} _(Sentimen: {sentiment})_")
+# Start of Streamlit app
+st.set_page_config(page_title="KerjaTayang", page_icon="🧑‍💻", layout="centered")
 
-            if is_positive:
-                score += 1
-                for skill in required_skills[role]:
-                    if skill.lower() in row["Intent"].lower():
-                        skill_scores[skill] += 1
+# Header with Dicoding meta tag note (for deployment)
+st.markdown("""
+    <head>
+        <meta name="dicoding:email" content="andy.lie95@gmail.com">
+    </head>
+""", unsafe_allow_html=True)
 
-    total_q = len(role_questions)
-    if score > 0:
+st.title("🎯 KerjaTayang: Simulasi Kerja Interaktif")
+st.markdown("Aplikasi ini membantu kamu melatih soft skill berdasarkan tantangan kerja nyata.")
+
+# User info
+name = st.text_input("Nama kamu:")
+age = st.number_input("Usia kamu:", min_value=10, max_value=60, step=1)
+
+# Dropdown to choose job role
+available_roles = questions_df['Role'].dropna().unique()
+role = st.selectbox("Pilih peran kerja:", available_roles)
+
+if role:
+    st.markdown(f"**Halo {name}, kamu memilih peran sebagai `{role}`.**")
+
+    # Show required soft skills
+    skills_for_role = questions_df[questions_df['Role'] == role]['Skills'].dropna().unique()
+    if len(skills_for_role):
+        st.markdown("💡 **Soft skill yang akan diuji:**")
+        st.markdown(", ".join(skills_for_role))
+
+    # Filter questions for role
+    role_questions = questions_df[questions_df['Role'] == role]
+
+    if len(role_questions):
+        sentiments = []
+        flags = 0
+
         st.markdown("---")
-        st.subheader("📊 Ringkasan Hasil")
-        st.write(f"Skor: **{score}/{total_q}**")
-        status = "✅ Cocok untuk peran ini" if score / total_q >= 0.6 else "🔁 Perlu latihan lagi"
-        st.write(f"Status: **{status}**")
+        st.subheader("🧪 Simulasi Kasus")
 
-        # Radar chart
-        radar_labels = required_skills[role]
-        radar_values = [skill_scores[s]/total_q for s in radar_labels]
-        radar_values += radar_values[:1]
-        radar_labels += radar_labels[:1]
+        for i, (_, row) in enumerate(role_questions.iterrows(), 1):
+            st.markdown(f"👩‍💼 **Skenario {i}:** {row['Background']}")
+            st.markdown(f"**Pertanyaan:** {row['Question']}")
+            user_response = st.text_area(f"✍️ Jawaban kamu untuk Skenario {i}:", key=f"q{i}")
 
-        fig = go.Figure()
-        fig.add_trace(go.Scatterpolar(
-            r=radar_values,
-            theta=radar_labels,
-            fill='toself',
-            name='Skor Soft Skill'
-        ))
-        fig.update_layout(
-            polar=dict(radialaxis=dict(visible=True, range=[0,1])),
-            showlegend=False
-        )
-        st.plotly_chart(fig)
+            if user_response:
+                sentiment, confidence, red_flag = analyze_sentiment(user_response)
+                sentiments.append(sentiment)
+                if red_flag:
+                    flags += 1
 
-        # TXT Export
-        summary = f"KerjaTayang Simulation\nName: {name}\nRole: {role}\nScore: {score}/{total_q}\nStatus: {status}\n"
-        st.download_button("📥 Unduh Hasil Simulasi", summary, file_name="hasil_kerjatayang.txt")
+                emoji = "✅" if sentiment == "positive" and not red_flag else "⚠️"
+                st.markdown(f"{emoji} **Analisis Sentimen:** `{sentiment}` (Keyakinan: {confidence:.2f})")
+
+        if len(sentiments) == 5:
+            # Summary
+            st.markdown("---")
+            st.subheader("📊 Hasil Evaluasi")
+
+            sentiment_counts = Counter(sentiments)
+            fit_score = sentiment_counts.get("positive", 0)
+            fit_percentage = (fit_score / 5) * 100
+
+            st.markdown(f"👍 **Kamu menjawab {fit_score} dari 5 dengan sentimen positif.**")
+            st.markdown(f"🧠 Red Flag Terdeteksi: {flags}")
+
+            # Radar chart
+            st.markdown("### 🕸️ Pemetaan Soft Skill")
+
+            labels = ['Positif', 'Netral', 'Negatif']
+            scores = [sentiment_counts.get(label.lower(), 0) for label in labels]
+
+            fig, ax = plt.subplots(figsize=(5, 5), subplot_kw=dict(polar=True))
+            angles = [n / float(len(labels)) * 2 * 3.14159 for n in range(len(labels))]
+            scores += scores[:1]
+            angles += angles[:1]
+
+            ax.plot(angles, scores, linewidth=2, linestyle='solid')
+            ax.fill(angles, scores, 'skyblue', alpha=0.4)
+            ax.set_xticks(angles[:-1])
+            ax.set_xticklabels(labels)
+            ax.set_yticklabels([])
+            st.pyplot(fig)
+
+            # Final feedback
+            st.markdown("---")
+            if fit_score >= 3 and flags <= 1:
+                st.success("🎉 Kamu dinilai **cocok** untuk peran ini! Pertahankan soft skill kamu.")
+            else:
+                st.warning("📈 Kamu perlu **berlatih lebih banyak** untuk meningkatkan kesiapan kerja kamu.")
+
+        st.markdown("---")
+        st.caption("⏱️ Setiap jawaban akan dinilai berdasarkan sentimen dan red flag tertentu. Maksimal 15 menit per sesi.")
