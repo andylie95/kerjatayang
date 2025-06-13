@@ -4,7 +4,7 @@ from azure.ai.textanalytics import TextAnalyticsClient
 from azure.core.credentials import AzureKeyCredential
 
 # Azure credentials
-AZURE_ENDPOINT = "https://<your-endpoint>.cognitiveservices.azure.com/"
+AZURE_ENDPOINT = "https://kerjatayang.cognitiveservices.azure.com/"
 AZURE_KEY = "8NT1mJXQxgeY7dJZioDN236Uu3DLzXfu5foUlggWBVUgOvIbJt8iJQQJ99BFACqBBLyXJ3w3AAAaACOGIhsJ"
 
 # Initialize Azure Text Analytics
