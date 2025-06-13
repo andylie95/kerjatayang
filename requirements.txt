@@ -1,4 +1,4 @@
 streamlit
 pandas
-azure-ai-textanalytics
-plotly
+requests
+matplotlib
