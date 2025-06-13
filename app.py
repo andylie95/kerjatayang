@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import openai
 import requests
 import json
 import matplotlib.pyplot as plt
