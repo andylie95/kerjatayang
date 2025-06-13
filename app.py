@@ -1,119 +1,140 @@
-
 import streamlit as st
 import pandas as pd
+import openai
+import requests
+import json
 import matplotlib.pyplot as plt
-from collections import defaultdict
-import numpy as np
+from math import pi
 
-# ---- CONFIG ----
-st.set_page_config(page_title="KerjaTayang", page_icon="🎙️", layout="centered")
-st.markdown("<h1 style='text-align: center;'>🎙️ KerjaTayang: Simulasi Dunia Kerja</h1>", unsafe_allow_html=True)
-st.markdown("<meta name='dicoding:email' content='andy.lie95@gmail.com'>", unsafe_allow_html=True)
+# ================= Azure Language Service Config ==================
+AZURE_LANGUAGE_KEY = "8NT1mJXQxgeY7dJZioDN236Uu3DLzXfu5foUlggWBVUgOvIbJt8iJQQJ99BFACqBBLyXJ3w3AAAaACOGIhsJ"
+AZURE_LANGUAGE_ENDPOINT = "https://kerjatayang.cognitiveservices.azure.com/"
+AZURE_LANGUAGE_API_URL = f"{AZURE_LANGUAGE_ENDPOINT}text/analytics/v3.2/sentiment"
 
-# ---- SESSION INIT ----
-if "started" not in st.session_state:
-    st.session_state.started = False
-if "role" not in st.session_state:
-    st.session_state.role = ""
-if "current_question" not in st.session_state:
-    st.session_state.current_question = 0
-if "responses" not in st.session_state:
-    st.session_state.responses = []
-if "score_map" not in st.session_state:
-    st.session_state.score_map = defaultdict(int)
-
-# ---- DATA ----
+# ================= Load Questions CSV ==================
 @st.cache_data
 def load_questions():
-    df = pd.read_csv("questions.csv")
-    df.columns = df.columns.str.strip()
-    return df
+    return pd.read_csv("questions.csv")
 
 questions_df = load_questions()
 
-# ---- SELECT ROLE ----
+# ================= Sentiment Analysis ==================
+def get_sentiment_score(text):
+    headers = {
+        "Ocp-Apim-Subscription-Key": AZURE_LANGUAGE_KEY,
+        "Content-Type": "application/json"
+    }
+    body = {
+        "documents": [
+            {"id": "1", "language": "id", "text": text}
+        ]
+    }
+
+    response = requests.post(AZURE_LANGUAGE_API_URL, headers=headers, json=body)
+    result = response.json()
+
+    sentiment = result['documents'][0]['sentiment']
+    if sentiment == "positive":
+        return 2
+    elif sentiment == "neutral":
+        return 1
+    else:
+        return 0
+
+# ================= Radar Chart ==================
+def plot_radar_chart(scores_dict):
+    labels = list(scores_dict.keys())
+    values = list(scores_dict.values())
+
+    # Remove zero scores
+    labels, values = zip(*[(l, v) for l, v in zip(labels, values) if v > 0])
+    if not values:
+        st.write("Tidak ada keterampilan positif yang terdeteksi.")
+        return
+
+    angles = [n / float(len(labels)) * 2 * pi for n in range(len(labels))]
+    values += values[:1]
+    angles += angles[:1]
+
+    fig, ax = plt.subplots(figsize=(5, 5), subplot_kw=dict(polar=True))
+    ax.plot(angles, values, linewidth=2, linestyle='solid')
+    ax.fill(angles, values, 'skyblue', alpha=0.4)
+    ax.set_xticks(angles[:-1])
+    ax.set_xticklabels(labels)
+    ax.set_yticklabels([])
+    st.pyplot(fig)
+
+# ================= Streamlit UI ==================
+st.set_page_config(page_title="KerjaTayang", page_icon="🎙️", layout="centered")
+
+st.markdown(
+    """
+    <meta name="dicoding:email" content="andy.lie95@gmail.com">
+    """,
+    unsafe_allow_html=True
+)
+
+st.title("🎙️ KerjaTayang: Simulasi Soft Skill")
+
+st.markdown("Silakan pilih peran kerja dan ikuti simulasi interaktif untuk mengevaluasi kesiapanmu.")
+
+# Pilih role
 roles = questions_df["Role"].dropna().unique()
-role = st.selectbox("👨‍💼 Pilih peran kerja yang ingin disimulasikan:", [""] + list(roles))
+selected_role = st.selectbox("Pilih peran kerja:", options=[""] + list(roles))
 
-if role and not st.session_state.started:
+if selected_role:
+    role_questions = questions_df[questions_df["Role"] == selected_role].reset_index(drop=True)
+    role_skills = role_questions["Skills"].unique()
+
+    st.markdown("**Skill yang akan diuji:** " + ", ".join(role_skills))
+
     if st.button("🚀 Mulai Simulasi"):
-        st.session_state.role = role
-        st.session_state.started = True
-        st.rerun()
+        st.session_state.current_q = 0
+        st.session_state.responses = []
+        st.session_state.scores = {}
 
-# ---- MAIN SIMULATION ----
-if st.session_state.started and st.session_state.role:
-    st.markdown(f"### Simulasi untuk peran: **{st.session_state.role}**")
-    role_questions = questions_df[questions_df["Role"] == st.session_state.role].reset_index(drop=True)
-
-    # Display required skills
-    skills_for_role = role_questions["Skills"].dropna().unique()
-    st.info("💡 Soft Skills yang dibutuhkan: " + ", ".join(skills_for_role))
-
-    q_index = st.session_state.current_question
+if "current_q" in st.session_state and selected_role:
+    q_index = st.session_state.current_q
 
     if q_index < len(role_questions):
-        question_row = role_questions.iloc[q_index]
-        st.markdown(f"**📘 Situasi:** {question_row['Background']}")
-        st.markdown(f"**❓ Pertanyaan:** {question_row['Question']}")
-        user_input = st.text_area("✍️ Jawaban kamu:", key=f"answer_{q_index}")
+        st.markdown(f"**📘 Kasus:** {role_questions.iloc[q_index]['Background']}**")
+        st.markdown(f"👩‍💼 **Pertanyaan {q_index+1}:** {role_questions.iloc[q_index]['Question']}")
+
+        response = st.text_input("✍️ Jawabanmu:", key=f"response_{q_index}")
 
         if st.button("Kirim Jawaban"):
-            # Soft skill scoring logic
-            red_flags = ["tidak", "menolak", "menghindari", "tidak tahu", "malas", "membiarkan", "tidak mau"]
-            score = 2  # Default: positive
-            lowered = user_input.lower()
+            skill = role_questions.iloc[q_index]["Skills"]
+            score = get_sentiment_score(response)
 
-            if any(flag in lowered for flag in red_flags):
-                score = 0
-            elif any(neg in lowered for neg in ["mungkin", "kurang", "ragu"]):
-                score = 1
+            # Simpan skor
+            if skill not in st.session_state.scores:
+                st.session_state.scores[skill] = 0
+            st.session_state.scores[skill] += score
 
-            # Save result
-            st.session_state.responses.append({
-                "Skill": question_row["Skills"],
-                "Score": score,
-                "Jawaban": user_input
-            })
-            st.session_state.score_map[question_row["Skills"]] += score
-            st.session_state.current_question += 1
-            st.rerun()
+            st.session_state.responses.append((response, score))
+            st.session_state.current_q += 1
+            st.experimental_rerun()
+
     else:
-        st.success("✅ Simulasi selesai!")
+        st.subheader("📊 Hasil Evaluasi")
 
-        # Show radar chart
-        st.markdown("### 🔎 Pemetaan Soft Skills")
+        plot_radar_chart(st.session_state.scores)
 
-        skill_scores = st.session_state.score_map
-        skill_names = list(skill_scores.keys())
-        scores = list(skill_scores.values())
-
-        filtered_skills = [s for s in skill_names if skill_scores[s] > 0]
-        filtered_scores = [skill_scores[s] for s in filtered_skills]
-
-        if filtered_skills:
-            angles = np.linspace(0, 2 * np.pi, len(filtered_skills), endpoint=False).tolist()
-            scores = filtered_scores + filtered_scores[:1]
-            angles += angles[:1]
-
-            fig, ax = plt.subplots(figsize=(5, 5), subplot_kw=dict(polar=True))
-            ax.plot(angles, scores, "o-", linewidth=2)
-            ax.fill(angles, scores, alpha=0.25)
-            ax.set_thetagrids(np.degrees(angles[:-1]), filtered_skills)
-            ax.set_title("Soft Skills Radar")
-            st.pyplot(fig)
-
-        # Final evaluation
-        total_score = sum([r["Score"] for r in st.session_state.responses])
-        max_score = len(st.session_state.responses) * 2
-        percentage = (total_score / max_score) * 100 if max_score > 0 else 0
+        total_score = sum(st.session_state.scores.values())
+        max_possible = len(role_questions) * 2
+        percentage = total_score / max_possible * 100
 
         if percentage >= 50:
-            st.success(f"🎉 Selamat! Kamu telah memiliki skill dasar untuk peran **{st.session_state.role}**.")
+            st.success(f"Selamat! Kamu telah memiliki keterampilan dasar untuk peran **{selected_role}**.")
         else:
-            low_skills = [r["Skill"] for r in st.session_state.responses if r["Score"] < 2]
-            st.warning("💪 Semangat! Kamu masih perlu mengembangkan skill berikut:")
-            st.markdown("- " + "
-- ".join(set(low_skills)))
+            lacking_skills = [k for k, v in st.session_state.scores.items() if v < 2]
+            st.warning(
+                f"Semangat! Kamu masih perlu mengembangkan keterampilan berikut untuk peran **{selected_role}**:\n\n- "
+                + "\n- ".join(lacking_skills)
+            )
 
-        st.button("🔁 Ulangi Simulasi", on_click=lambda: st.session_state.clear())
+        if st.button("🔁 Ulangi Simulasi"):
+            del st.session_state.current_q
+            del st.session_state.responses
+            del st.session_state.scores
+            st.experimental_rerun()
