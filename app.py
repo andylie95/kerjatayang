@@ -8,7 +8,6 @@ from math import pi
 # ================= Azure Language Service Config ==================
 AZURE_LANGUAGE_KEY = "8NT1mJXQxgeY7dJZioDN236Uu3DLzXfu5foUlggWBVUgOvIbJt8iJQQJ99BFACqBBLyXJ3w3AAAaACOGIhsJ"
 AZURE_LANGUAGE_ENDPOINT = "https://kerjatayang.cognitiveservices.azure.com/"
-AZURE_LANGUAGE_API_URL = f"{AZURE_LANGUAGE_ENDPOINT}text/analytics/v3.2/sentiment"
 
 # ================= Load Questions CSV ==================
 @st.cache_data
