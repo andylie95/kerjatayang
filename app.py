@@ -4,11 +4,11 @@ import requests
 import matplotlib.pyplot as plt
 import numpy as np
 
-# Set page config first
+# Set page config
 st.set_page_config(page_title="KerjaTayang", page_icon="🎯", layout="centered")
 st.markdown("""<meta name="dicoding:email" content="andy.lie95@gmail.com">""", unsafe_allow_html=True)
 
-# Azure config
+# AZURE CONFIG (integrated directly here)
 AZURE_ENDPOINT = "https://kerjatayang.cognitiveservices.azure.com/"
 AZURE_KEY = "8NT1mJXQxgeY7dJZioDN236Uu3DLzXfu5foUlggWBVUgOvIbJt8iJQQJ99BFACqBBLyXJ3w3AAAaACOGIhsJ"
 
@@ -19,7 +19,7 @@ def load_questions():
 
 questions_df = load_questions()
 
-# Sentiment function
+# Get sentiment
 def get_sentiment(text):
     url = f"{AZURE_ENDPOINT}/text/analytics/v3.1/sentiment"
     headers = {
@@ -36,81 +36,78 @@ def get_sentiment(text):
     except:
         return "neutral"
 
+# Convert sentiment to score
 def sentiment_score(sentiment):
     return {"positive": 2, "neutral": 1, "negative": 0}.get(sentiment, 1)
 
-# Interface
 st.title("🎯 KerjaTayang")
 st.subheader("Simulasi Kasus Kerja Berbasis Soft Skills")
 
-# Role Selection
 role = st.selectbox("Pilih peran kerja:", [""] + sorted(questions_df["Role"].unique()))
 if role:
-    skills = questions_df[questions_df["Role"] == role]["Skills"].unique()
-    st.markdown(f"**🧠 Keterampilan utama:** {', '.join(skills)}")
-    if "start" not in st.session_state:
-        if st.button("🚀 Mulai Simulasi"):
-            st.session_state.start = True
-            st.session_state.step = 0
-            st.session_state.responses = []
-            st.session_state.scores = []
-else:
-    st.stop()
-
-if st.session_state.get("start", False):
     questions = questions_df[questions_df["Role"] == role].reset_index(drop=True)
-    step = st.session_state.get("step", 0)
+    skills = questions["Skills"].unique()
+    st.markdown(f"**Keterampilan Utama:** {', '.join(skills)}")
 
-    if step < len(questions):
-        row = questions.iloc[step]
-        st.markdown(f"🧑‍💼 **Skenario {step+1}**: {row['Scenario']}")
-        st.markdown(f"🎤 **Pertanyaan:** {row['Question']}")
-        user_input = st.text_area("✍️ Jawabanmu:", key=f"input_{step}")
+    st.markdown("---")
+    st.markdown("### ✍️ Jawabanmu:")
 
-        if st.button("✅ Kirim Jawaban"):
-            sentiment = get_sentiment(user_input)
+    responses = []
+    for i, row in questions.iterrows():
+        st.markdown(f"**🧑‍💼 Skenario {i+1}:** {row['Scenario']}")
+        st.markdown(f"**🎤 Pertanyaan:** {row['Question']}")
+        user_input = st.text_area(f"Jawaban {i+1}", key=f"answer_{i}")
+        responses.append({
+            "question": row["Question"],
+            "response": user_input,
+            "skill": row["Skills"]
+        })
+
+    if st.button("✅ Kirim Semua Jawaban"):
+        result_data = []
+        for r in responses:
+            sentiment = get_sentiment(r["response"])
             score = sentiment_score(sentiment)
-            st.session_state.responses.append({
-                "question": row["Question"],
-                "response": user_input,
-                "sentiment": sentiment,
-                "score": score,
-                "skill": row["Skills"]
+            result_data.append({
+                "Skill": r["skill"],
+                "Question": r["question"],
+                "Response": r["response"],
+                "Sentiment": sentiment,
+                "Score": score
             })
-            st.session_state.scores.append(score)
-            st.session_state.step += 1
-            st.experimental_rerun()
-    else:
-        st.success("✅ Simulasi selesai!")
-        df = pd.DataFrame(st.session_state.responses)
-        skill_summary = df.groupby("skill")["score"].mean().reset_index()
-        skill_summary = skill_summary[skill_summary["score"] > 0]
 
-        if not skill_summary.empty:
-            # Radar chart
-            labels = skill_summary["skill"].tolist()
-            values = skill_summary["score"].tolist()
-            labels += labels[:1]
-            values += values[:1]
+        result_df = pd.DataFrame(result_data)
 
-            angles = [n / float(len(labels)) * 2 * np.pi for n in range(len(labels))]
-            fig, ax = plt.subplots(subplot_kw={"polar": True})
-            ax.plot(angles, values, "o-", linewidth=2)
-            ax.fill(angles, values, alpha=0.25)
-            ax.set_thetagrids(np.degrees(angles[:-1]), labels)
-            st.pyplot(fig)
+        # Summary chart
+        skill_scores = result_df.groupby("Skill")["Score"].mean().reindex(skills, fill_value=0)
+        labels = skill_scores.index.tolist()
+        values = skill_scores.tolist()
 
-        total = sum(st.session_state.scores)
-        max_score = len(st.session_state.scores) * 2
-        percentage = total / max_score * 100
+        labels += labels[:1]
+        values += values[:1]
+        angles = [n / float(len(labels)) * 2 * np.pi for n in range(len(labels))]
+
+        st.markdown("---")
+        st.subheader("📊 Pemetaan Soft Skills")
+
+        fig, ax = plt.subplots(subplot_kw={'polar': True})
+        ax.plot(angles, values, 'o-', linewidth=2)
+        ax.fill(angles, values, alpha=0.25)
+        ax.set_thetagrids(np.degrees(angles[:-1]), labels)
+        st.pyplot(fig)
+
+        # Evaluation
+        total_score = sum(result_df["Score"])
+        max_score = len(result_df) * 2
+        percentage = (total_score / max_score) * 100
 
         if percentage >= 50:
-            st.success(f"🎉 Selamat, kamu telah memiliki skill dasar untuk peran **{role}**!")
+            st.success(f"🎉 Selamat! Kamu telah memiliki skill dasar untuk peran **{role}**.")
         else:
-            underdeveloped = df[df["score"] < 2]["skill"].unique()
+            underdeveloped = result_df[result_df["Score"] < 2]["Skill"].unique()
             st.warning(f"⚠️ Semangat! Kamu masih perlu mengembangkan skill: {', '.join(underdeveloped)}")
 
+        st.markdown("---")
+        st.markdown("Ingin mencoba ulang?")
         if st.button("🔄 Ulangi Simulasi"):
-            for k in ["start", "step", "responses", "scores"]:
-                st.session_state.pop(k, None)
             st.experimental_rerun()
