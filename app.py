@@ -1,11 +1,21 @@
+import os
 import streamlit as st
 import pandas as pd
 import requests
 
 # ====== Konfigurasi Azure Language Service ======
-AZURE_ENDPOINT = "https://kerjatayang.cognitiveservices.azure.com/"
-AZURE_KEY = "8NT1mJXQxgeY7dJZioDN236Uu3DLzXfu5foUlggWBVUgOvIbJt8iJQQJ99BFACqBBLyXJ3w3AAAaACOGIhsJ"
-AZURE_REGION = "southeastasia"
+# Dibaca dari Streamlit secrets, dengan fallback ke environment variable.
+def get_config(name, default=None):
+    try:
+        if name in st.secrets:
+            return st.secrets[name]
+    except Exception:
+        pass
+    return os.environ.get(name, default)
+
+AZURE_ENDPOINT = get_config("AZURE_ENDPOINT", "https://kerjatayang.cognitiveservices.azure.com/")
+AZURE_KEY = get_config("AZURE_KEY")
+AZURE_REGION = get_config("AZURE_REGION", "southeastasia")
 
 # ====== Red Flag Keywords ======
 red_flag_keywords = [
@@ -41,6 +51,14 @@ def analyze_sentiment(text):
 # ====== Setup Streamlit App ======
 st.set_page_config(page_title="KerjaTayang", layout="centered")
 st.title("🎯 KerjaTayang: Simulasi Soft Skill Berdasarkan Peran")
+
+if not AZURE_KEY:
+    st.error(
+        "Azure Language Service key belum dikonfigurasi. "
+        "Tambahkan AZURE_KEY di .streamlit/secrets.toml (atau di Secrets pada Streamlit Cloud), "
+        "atau set environment variable AZURE_KEY."
+    )
+    st.stop()
 
 # ====== Form Nama dan Umur ======
 with st.form("user_info"):
