@@ -1,0 +1,65 @@
+name: Build Wander Atlas exe
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["wander-atlas-v*"]
+    paths:
+      - "wander-atlas/**"
+      - ".github/workflows/wander-atlas-exe.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write # needed only to attach the exe to a release on tags
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build exe
+        working-directory: wander-atlas
+        run: |
+          pip install pyinstaller
+          pyinstaller --noconfirm --onefile --windowed --name WanderAtlas --add-data "web;web" wander_atlas.py
+
+      - name: Smoke test
+        shell: pwsh
+        run: |
+          $env:WANDER_ATLAS_DATA = "$env:RUNNER_TEMP\wander-data"
+          $p = Start-Process -FilePath wander-atlas\dist\WanderAtlas.exe -ArgumentList '--no-browser' -PassThru
+          try {
+            $ok = $false
+            foreach ($i in 1..30) {
+              Start-Sleep -Seconds 1
+              try {
+                $r = Invoke-WebRequest -UseBasicParsing http://127.0.0.1:47615/api/ping
+                if ($r.Content -match 'wander-atlas') { $ok = $true; break }
+              } catch {}
+            }
+            if (-not $ok) { throw 'Wander Atlas did not start' }
+            $page = Invoke-WebRequest -UseBasicParsing http://127.0.0.1:47615/
+            if ($page.Content -notmatch '<title>Wander Atlas</title>') { throw 'Page was not served' }
+            Invoke-WebRequest -UseBasicParsing http://127.0.0.1:47615/vendor/leaflet.js | Out-Null
+          } finally {
+            Stop-Process -Id $p.Id -Force
+          }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WanderAtlas-windows
+          path: wander-atlas/dist/WanderAtlas.exe
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/wander-atlas-v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$env:GITHUB_REF_NAME" wander-atlas/dist/WanderAtlas.exe --title "Wander Atlas $env:GITHUB_REF_NAME" --notes "Windows build of Wander Atlas. Download WanderAtlas.exe and double-click it."

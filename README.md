@@ -16,3 +16,7 @@ Alternatif: set environment variable `AZURE_KEY`, `AZURE_ENDPOINT`, dan `AZURE_R
 **Streamlit Cloud**
 
 Buka **App settings → Secrets**, lalu tempel isi yang sama seperti `secrets.toml` (format TOML) dengan nilai aslimu.
+
+## Wander Atlas
+
+Aplikasi atlas perjalanan terpisah ada di folder [`wander-atlas`](wander-atlas/README.md); bisa dijalankan sebagai aplikasi Python atau exe Windows.
